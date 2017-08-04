@@ -142,8 +142,24 @@
          * @var {Object}
          */
         _state: {
+            /**
+             * The sorted MBTI types; for example: ['INTJ','INFJ','INTP',...,'ESFJ'] 
+             * @var {Array<String>}
+             */
             sortedTypes: null,
+            
+            /**
+             * The MBTI type filter to toggle which MBTI types should be shown; for example: 'EST,INT,INFJ' or 'IN'
+             * @var {String}
+             */
             typeFilter: '',
+            
+            /**
+             * The cognitive functions to sort by, where the first cognitive function listed in the array
+             * has a higher sort priority; for example: ['Te','Fi'] or ['Te','Si'] where 'Te' is the highest
+             * sort priorty. This array's max length is 2 (as anything greater than this has no effect).
+             * @var {Array<String>}
+             */
             sortBy: null,
         },
         
@@ -195,7 +211,11 @@
             }
         },
         
-        initialize: function(containerElement) {
+        /**
+         * @param {jQueryElement} containerElement The container element to contain this application
+         * @param {String} [typeFilter] The MBTI type filter to use initially; defaults to the empty string ""
+         */
+        initialize: function(containerElement, typeFilter) {
             this._dom.container = containerElement;
             
             this.initializeDom();
@@ -203,7 +223,7 @@
             
             this._setState({
                 sortedTypes: Object.keys(types),
-                typeFilter: '',
+                typeFilter: typeFilter ? this.screenTypeFilter(typeFilter) : '',
                 sortBy: [],
             });
         },
@@ -216,19 +236,17 @@
             
             container.html(
                 '<div class="Mbti-App">'
-                    + '<span class="label">Type:</span><input class="mbti-type-input" type="text" value="" /><br />'
-                    + '<span class="label">Order by Cognitive Function:</span><input id="cf" type="text" value="" /><br />'
+                    + '<div class="mbti-app-toolbar">'
+                        + '<span class="mbti-app-toolbar-label">Type Filter:</span><input class="mbti-app-toolbar-input" type="text" value="" />'
+                    + '</div>'
                     + '<div class="mbti-app-types-container"></div>'
                 + '</div>'
             );
             
             Object.assign(this._dom, {
                 typesContainer: container.find('.mbti-app-types-container'),
-                typeFilter: container.find('.mbti-type-input'),
+                typeFilter: container.find('.mbti-app-toolbar-input'),
             });
-            
-            // Place the hash value from the URL into the MBTI input textbox
-            // this._dom.typeFilter.val(window.location.hash.replace('#', ''));
         },
         
         /**
@@ -266,10 +284,7 @@
             }
         },
         
-        /**
-         * Handles when the type filter changes within the user interface and keeps its input limited to valid type filter input only
-         */
-        handleTypeFilterChange: function() {
+        screenTypeFilter: function(typeFilterInput) {
             /**
              * @param {String} typeFilter The type filter that toggles which MBTI types to show; for example "IJ", "ES", or "INTJ"
              */
@@ -305,36 +320,38 @@
                 return newTypeFilter;
             }
             
-            // Remember the original input value of the type filter
-            var typeFiltersOriginalValue = this._dom.typeFilter.val();
-            
-            // If the type filter(s) have not changed, then do nothing
-            if (typeFiltersOriginalValue === this._state.typeFilter) return;
-            
             // Iterate through all type filters in the comma-delimited string
-            var typeFilters = typeFiltersOriginalValue.split(','),
+            var typeFilters = typeFilterInput.split(','),
                 newTypeFilters = [];
             for (var i = 0; i < typeFilters.length; i++) {
                 newTypeFilters.push(processTypeFilter(typeFilters[i]));
             }
             
-            // Get the new input value of the type filter
-            var newTypeFiltersString = newTypeFilters.join(',');
+            // Return the new input value of the type filter(s)
+            return newTypeFilters.join(',');
+        },
+        
+        /**
+         * Handles when the type filter has potentially changed within the user interface and keeps its input limited to valid type filter input only
+         */
+        handleTypeFilterPotentialChange: function() {
+            // Get the type filter's input's value
+            var typeFilter = this._dom.typeFilter.val();
             
-            // Update the input with the processed change
-            this._dom.typeFilter.val(newTypeFiltersString);
-            
-            // Update the state with resulting type filter
-            this._setState({
-                typeFilter: newTypeFiltersString
-            });
+            // Only if the type filter has changed
+            if (typeFilter !== this._state.typeFilter) {
+                // Update the state with a screened/processed type filter
+                this._setState({
+                    typeFilter: this.screenTypeFilter(typeFilter)
+                });
+            }
         },
         
         /**
          * Initialize the app's event listeners
          */
         initializeEventListeners: function() {
-            this._dom.typeFilter.on('keyup', () => this.handleTypeFilterChange());
+            this._dom.typeFilter.on('keyup', () => this.handleTypeFilterPotentialChange());
             
             this._dom.container.on('click', '.cognitiveFunction', event => {
                 var sortFilter = [$(event.currentTarget).html()];
@@ -373,14 +390,23 @@
          * @return {String} The HTML of a container describing the provided MBTI type
          */
         getTypeContainerHtml: function(type) {
-            var cognitiveFunctions = MbtiTypes.getTypeData(type);
+            var cognitiveFunctions = MbtiTypes.getTypeData(type),
+                sortBy = this._state.sortBy;
             return (
                 '<div class="typeContainer typeContainer_' + type + '">'
                     + '<div class="typeLabel">' + type + '</div>'
                     + (function() {
                         var result = '';
                         $.each(cognitiveFunctions, function(index, cognitiveFunction) {
-                            result += '<div class="cognitiveFunction tier' + (index + 1) + '">' + cognitiveFunction + '</div>';
+                            // Add additional classes to indicate whether this cognitive function is being sorted
+                            var additionalClasses = [];
+                            for (var i = 0; i < sortBy.length; i++) {
+                                if (cognitiveFunction === sortBy[i]) {
+                                    additionalClasses.push('sortPriority' + (i + 1));
+                                }
+                            }
+                            
+                            result += '<div class="cognitiveFunction tier' + (index + 1) + ' ' + additionalClasses.join(' ') + '">' + cognitiveFunction + '</div>';
                         });
                         return result;
                     })()
@@ -392,11 +418,9 @@
          * Synchronize the interface with the app's current state
          */
         synchronizeInterface: function() {
-            console.log('this._state ==', this._state);
-            
+            // Update the input with the updated state
+            this._dom.typeFilter.val(this._state.typeFilter);
             this._dom.typesContainer.html(this.getTypesContainerHtml(this._state.sortedTypes));
-            
-            // window.location.hash = this._state.typeFilter;
         }
     };
     
